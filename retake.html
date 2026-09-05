@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Retake — copy a video one shot at a time</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#171A20;
+  --slate:#22262E;
+  --slate-hi:#2C313B;
+  --chalk:#EDE9E0;
+  --chalk-dim:#8B909B;
+  --marker:#F5C518;
+  --strike:#E0503A;
+  --good:#7FB069;
+  --rule:#343A45;
+  --tap:56px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:var(--ground);color:var(--chalk);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;line-height:1.45;
+  overscroll-behavior:none;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.numeral{font-family:"Anton",Impact,"Arial Narrow Bold",sans-serif;font-weight:400;letter-spacing:.01em}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--marker);outline-offset:2px}
+
+/* ---------- shell ---------- */
+#app{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
+header{padding:14px 16px 0}
+.wordmark{display:flex;align-items:baseline;gap:10px}
+.wordmark h1{font-family:"Anton",Impact,sans-serif;font-weight:400;font-size:30px;letter-spacing:.02em;line-height:1}
+.wordmark p{font-size:13px;color:var(--chalk-dim)}
+.sticks{height:12px;margin:12px 0 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  background:repeating-linear-gradient(115deg,var(--chalk) 0 14px,var(--ground) 14px 28px);opacity:.85}
+main{flex:1;padding:16px;display:flex;flex-direction:column;gap:16px}
+.screen{display:none;flex-direction:column;gap:16px;flex:1}
+.screen.on{display:flex}
+
+/* ---------- pieces ---------- */
+.panel{background:var(--slate);border:1px solid var(--rule);border-radius:4px;padding:14px}
+.hint{font-size:14px;color:var(--chalk-dim)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:var(--tap);
+  padding:0 18px;border-radius:3px;background:var(--slate-hi);border:1px solid var(--rule);font-weight:500}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.btn.key{background:var(--marker);color:#191B20;border-color:var(--marker);font-weight:600}
+.btn.strike{background:transparent;border-color:var(--strike);color:var(--strike)}
+.btn.good{background:var(--good);color:#12180F;border-color:var(--good);font-weight:600}
+.btn.small{min-height:40px;padding:0 12px;font-size:14px}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+label.field{display:block;font-size:14px;color:var(--chalk-dim);margin-bottom:6px}
+select,input[type=text]{width:100%;min-height:46px;padding:0 10px;background:var(--ground);
+  border:1px solid var(--rule);border-radius:3px}
+input[type=range]{width:100%;accent-color:var(--marker)}
+
+/* ---------- load ---------- */
+.drop{border:1px dashed var(--rule);border-radius:4px;padding:34px 18px;text-align:center;background:var(--slate)}
+.drop .numeral{font-size:44px;color:var(--marker);line-height:1}
+.steps{display:grid;gap:10px;margin-top:4px}
+.steps li{display:grid;grid-template-columns:26px 1fr;gap:12px;align-items:start;font-size:14px;color:var(--chalk-dim);list-style:none}
+.steps .n{font-family:"Anton",Impact,sans-serif;color:var(--marker);font-size:18px;line-height:1.3}
+
+/* ---------- shot strip ---------- */
+.strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
+.shot{position:relative;flex:0 0 auto;width:74px;border:1px solid var(--rule);border-radius:3px;
+  overflow:hidden;background:var(--slate);text-align:left}
+.shot img{display:block;width:100%;aspect-ratio:9/14;object-fit:cover;opacity:.75}
+.shot .idx{position:absolute;top:0;left:0;background:var(--ground);color:var(--chalk);
+  font-family:"Anton",Impact,sans-serif;font-size:13px;padding:1px 6px}
+.shot .len{position:absolute;bottom:0;right:0;background:rgba(23,26,32,.85);font-size:11px;padding:1px 5px}
+.shot.now{border-color:var(--marker);box-shadow:0 0 0 1px var(--marker)}
+.shot.kept img{opacity:1}
+.shot.kept:after{content:"KEEP";position:absolute;bottom:0;left:0;background:var(--good);color:#12180F;
+  font-size:10px;font-weight:600;letter-spacing:.06em;padding:1px 5px}
+
+/* ---------- stage ---------- */
+.stage{position:relative;width:100%;aspect-ratio:9/16;background:#000;border:1px solid var(--rule);
+  border-radius:4px;overflow:hidden}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#cam{transform:scaleX(-1)}
+#ref{pointer-events:none}
+#ref.mir{transform:scaleX(-1)}
+.count{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.count span{font-family:"Anton",Impact,sans-serif;font-size:clamp(90px,34vw,190px);color:var(--chalk);
+  text-shadow:0 0 30px rgba(0,0,0,.7);line-height:1}
+.beat{position:absolute;left:0;bottom:0;right:0;display:flex;gap:2px;padding:8px;pointer-events:none}
+.beat i{flex:1;height:3px;background:rgba(237,233,224,.25)}
+.beat i.on{background:var(--marker)}
+.meter{position:absolute;top:8px;left:8px;display:flex;align-items:baseline;gap:6px;
+  background:rgba(23,26,32,.8);padding:4px 8px;border-radius:3px}
+.meter b{font-family:"Anton",Impact,sans-serif;font-size:22px;line-height:1}
+.meter small{font-size:11px;color:var(--chalk-dim)}
+.rec{position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:6px;
+  background:rgba(23,26,32,.8);padding:4px 8px;border-radius:3px;font-size:12px}
+.rec i{width:9px;height:9px;border-radius:50%;background:var(--strike)}
+@media (prefers-reduced-motion:no-preference){.rec i{animation:pulse 1s steps(2,end) infinite}}
+@keyframes pulse{50%{opacity:.15}}
+.hidden{display:none!important}
+.offstage{position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+/* ---------- progress ---------- */
+.bar{height:4px;background:var(--slate-hi);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--marker);width:0%;transition:width .2s linear}
+
+.stack{display:grid;gap:10px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.two video{width:100%;aspect-ratio:9/16;object-fit:cover;background:#000;border:1px solid var(--rule);border-radius:3px}
+.cap{font-size:12px;color:var(--chalk-dim);margin-top:4px}
+.score{display:flex;align-items:baseline;gap:8px}
+.score b{font-family:"Anton",Impact,sans-serif;font-size:40px;line-height:1}
+footer{padding:0 16px 20px;font-size:12px;color:var(--chalk-dim)}
+a{color:var(--marker)}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="wordmark">
+    <h1 class="numeral">RETAKE</h1>
+    <p>copy a video, one shot at a time</p>
+  </div>
+  <div class="sticks"></div>
+</header>
+
+<main>
+
+<!-- ============ 1. LOAD ============ -->
+<section class="screen on" id="s-load">
+  <div class="drop">
+    <div class="numeral">＋</div>
+    <p style="margin:10px 0 14px">Pick the video you want to copy</p>
+    <button class="btn key" id="pick" style="display:inline-flex">Choose video</button>
+    <input type="file" id="file" accept="video/*" hidden>
+    <p class="hint" id="loadstate" style="margin-top:12px"></p>
+    <p class="hint hidden" id="boom" style="margin-top:10px;color:var(--strike)"></p>
+    <p class="hint hidden" id="local" style="margin-top:10px;color:var(--marker)"></p>
+  </div>
+  <ul class="steps">
+    <li><span class="n">1</span><span>Save the video to your camera roll first — screen-record it if you have to.</span></li>
+    <li><span class="n">2</span><span>Retake breaks it into shots, on the beat or on the cuts.</span></li>
+    <li><span class="n">3</span><span>Film each shot with the original ghosted over your camera. Keep it or go again.</span></li>
+    <li><span class="n">4</span><span>Your keepers get stitched back together over the original audio.</span></li>
+  </ul>
+  <p class="hint">Everything stays on your phone. Nothing is uploaded.</p>
+</section>
+
+<!-- ============ 2. SPLIT ============ -->
+<section class="screen" id="s-split">
+  <div class="panel stack">
+    <div>
+      <label class="field" for="mode">How should it be split?</label>
+      <select id="mode">
+        <option value="beat8">On the beat — 8 counts a shot</option>
+        <option value="beat4">On the beat — 4 counts a shot</option>
+        <option value="cuts">On the cuts — when the picture changes</option>
+        <option value="even">Even chunks of 2 seconds</option>
+      </select>
+    </div>
+    <button class="btn key" id="analyse">Split into shots</button>
+    <div class="bar hidden" id="prog"><i></i></div>
+    <p class="hint" id="splitnote"></p>
+  </div>
+  <div class="strip" id="strip1"></div>
+  <div class="row hidden" id="editrow">
+    <button class="btn small" id="merge">Join to next</button>
+    <button class="btn small" id="halve">Split in two</button>
+  </div>
+  <button class="btn key hidden" id="toshoot">Start shooting</button>
+</section>
+
+<!-- ============ 3. SHOOT ============ -->
+<section class="screen" id="s-shoot">
+  <div class="strip" id="strip2"></div>
+
+  <div class="stage" id="stage">
+    <video id="cam" playsinline autoplay muted></video>
+    <video id="ref" playsinline></video>
+    <div class="meter hidden" id="meter"><b>–</b><small>match</small></div>
+    <div class="rec hidden" id="reclamp"><i></i><span id="rectime">0.0</span></div>
+    <div class="beat hidden" id="beatbar"></div>
+    <div class="count hidden" id="countin"><span class="numeral">3</span></div>
+  </div>
+
+  <div class="panel stack">
+    <div id="shotnote" style="font-size:15px"></div>
+    <div>
+      <label class="field" for="ghost">Ghost <span id="ghostval">35%</span></label>
+      <input type="range" id="ghost" min="0" max="90" value="35">
+    </div>
+    <div class="row">
+      <button class="btn small" id="mirror">Mirror: on</button>
+      <button class="btn small" id="preview">Watch the shot</button>
+    </div>
+  </div>
+
+  <button class="btn key" id="shoot">Film this shot</button>
+  <div class="row">
+    <button class="btn small" id="prev">Back</button>
+    <button class="btn small" id="skip">Skip</button>
+    <button class="btn small" id="tocut">Finish</button>
+  </div>
+</section>
+
+<!-- ============ 4. REVIEW ============ -->
+<section class="screen" id="s-review">
+  <div class="two">
+    <div><video id="rv-take" playsinline autoplay muted loop></video><div class="cap">Your take</div></div>
+    <div><video id="rv-ref" playsinline autoplay muted loop></video><div class="cap">The original</div></div>
+  </div>
+  <div class="panel score" id="scorebox"><b id="scoreval">–</b><span id="scoretext" class="hint"></span></div>
+  <div class="row">
+    <button class="btn strike" id="again">Go again</button>
+    <button class="btn good" id="keep">Keep it</button>
+  </div>
+</section>
+
+<!-- ============ 5. CUT ============ -->
+<section class="screen" id="s-cut">
+  <div class="panel stack">
+    <div id="cutstate" style="font-size:15px">Ready to build the cut.</div>
+    <div class="bar hidden" id="cutprog"><i></i></div>
+    <button class="btn key" id="build">Build the cut</button>
+  </div>
+  <video id="out" class="hidden" playsinline controls style="width:100%;aspect-ratio:9/16;background:#000;border-radius:4px"></video>
+  <a id="dl" class="btn key hidden" download="retake.webm">Save to your camera roll</a>
+  <button class="btn small" id="backtoshoot">Back to the shots</button>
+</section>
+
+</main>
+<footer>Pose scoring uses MediaPipe and loads once from the network. Without it, everything else still works.</footer>
+</div>
+
+<video id="src" playsinline muted preload="auto" class="offstage"></video>
+<canvas id="work" class="hidden"></canvas>
+<canvas id="stitch" class="hidden"></canvas>
+
+<script>
+/* Runs as a classic script on purpose: module scripts are blocked on file:// */
+window.addEventListener('error', e => {
+  const b = document.getElementById('boom');
+  if (b){ b.classList.remove('hidden'); b.textContent = 'Script error: ' + (e.message || e); }
+});
+
+/* =========================================================
+   state
+========================================================= */
+const S = {
+  file:null, url:null, dur:0,
+  segs:[],            // {start,end,thumb,ref:[{t,ang}],take:{blob,url},score,kept}
+  cur:0,
+  beat:null,          // {period, phase}
+  mirror:true,
+  ghost:0.35,
+  stream:null,
+  pose:null,
+  ts:0
+};
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const show = id => $$('.screen').forEach(e => e.classList.toggle('on', e.id === id));
+const fmt = n => n.toFixed(1) + 's';
+
+/* =========================================================
+   1. load
+========================================================= */
+$('#pick').onclick = () => $('#file').click();
+
+if (location.protocol === 'file:'){
+  const l = $('#local');
+  l.classList.remove('hidden');
+  l.textContent = 'Opened from your disk. Splitting works, but the camera needs a real address — put it on GitHub Pages or run a local server.';
+}
+$('#file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const st = $('#loadstate');
+  st.textContent = `Loading ${f.name}…`;
+  S.file = f;
+  if (S.url) URL.revokeObjectURL(S.url);
+  S.url = URL.createObjectURL(f);
+  const v = $('#src');
+  try {
+    await loadVideo(v, S.url);
+    S.dur = await realDuration(v);
+    if (!isFinite(S.dur) || S.dur <= 0) throw new Error('The length of that file could not be read.');
+    st.textContent = '';
+    $('#splitnote').textContent = `${fmt(S.dur)} loaded. Beat splitting needs music on the track — if there is none, use cuts.`;
+    show('s-split');
+  } catch (err) {
+    st.textContent = err.message + ' Pick another file, or convert it to MP4 (H.264) first.';
+  }
+};
+
+function loadVideo(v, url){
+  return new Promise((resolve, reject) => {
+    const clean = () => {
+      v.removeEventListener('loadedmetadata', ok);
+      v.removeEventListener('error', bad);
+      clearInterval(poll); clearTimeout(bail);
+    };
+    const ok = () => { if (v.readyState >= 1){ clean(); resolve(); } };
+    const bad = () => { clean(); reject(new Error('This browser cannot decode that file.')); };
+    v.addEventListener('loadedmetadata', ok);
+    v.addEventListener('error', bad);
+    const poll = setInterval(ok, 200);          // catches events that never fire
+    const bail = setTimeout(() => { clean(); reject(new Error('The video never finished loading.')); }, 20000);
+    v.src = url;
+    v.load();
+    ok();
+  });
+}
+
+// some recordings report Infinity until you seek past the end
+function realDuration(v){
+  if (isFinite(v.duration) && v.duration > 0) return Promise.resolve(v.duration);
+  return new Promise(res => {
+    const done = () => { v.removeEventListener('durationchange', h); v.currentTime = 0; res(v.duration); };
+    const h = () => { if (isFinite(v.duration) && v.duration > 0) done(); };
+    v.addEventListener('durationchange', h);
+    v.currentTime = 1e6;
+    setTimeout(() => res(v.duration), 3000);
+  });
+}
+
+function once(el, ev){ return new Promise(r => el.addEventListener(ev, r, {once:true})); }
+function seek(v, t){
+  return new Promise(r => {
+    const done = () => r();
+    v.addEventListener('seeked', done, {once:true});
+    v.currentTime = Math.min(Math.max(t, 0), Math.max(0, v.duration - 0.02));
+    setTimeout(done, 600); // safety for browsers that swallow seeked
+  });
+}
+function prog(el, p){
+  el.classList.remove('hidden');
+  el.firstElementChild.style.width = Math.round(p*100) + '%';
+}
+
+/* =========================================================
+   2. split
+========================================================= */
+$('#analyse').onclick = async () => {
+  const mode = $('#mode').value;
+  $('#analyse').disabled = true;
+  const p = $('#prog');
+  let cuts = [];
+
+  try {
+    if (mode.startsWith('beat')) {
+      $('#splitnote').textContent = 'Listening for the beat…';
+      prog(p, .2);
+      const grid = await findBeat(S.file);
+      if (!grid) {
+        $('#splitnote').textContent = 'No clear beat on that track. Splitting on the cuts instead.';
+        cuts = await findCuts(p);
+      } else {
+        S.beat = grid;
+        const per = mode === 'beat8' ? 8 : 4;
+        for (let t = grid.phase; t < S.dur; t += grid.period * per) cuts.push(t);
+        $('#splitnote').textContent =
+          `${Math.round(60/grid.period)} bpm. ${per} counts a shot.`;
+      }
+    } else if (mode === 'cuts') {
+      cuts = await findCuts(p);
+      $('#splitnote').textContent = `${cuts.length} cut${cuts.length===1?'':'s'} found.`;
+    } else {
+      for (let t = 0; t < S.dur; t += 2) cuts.push(t);
+      $('#splitnote').textContent = 'Even 2-second chunks.';
+    }
+
+    buildSegs(cuts);
+    prog(p, .6);
+    await makeThumbs(p);
+    p.classList.add('hidden');
+    drawStrip('#strip1', true);
+    $('#editrow').classList.remove('hidden');
+    $('#toshoot').classList.remove('hidden');
+  } catch (err) {
+    $('#splitnote').textContent = 'That split failed: ' + err.message + '. Try another mode.';
+    p.classList.add('hidden');
+  }
+  $('#analyse').disabled = false;
+};
+
+function buildSegs(cuts){
+  const pts = [...new Set([0, ...cuts.filter(t => t > 0.2 && t < S.dur - 0.2), S.dur])]
+    .sort((a,b) => a-b);
+  const segs = [];
+  for (let i = 0; i < pts.length - 1; i++){
+    if (pts[i+1] - pts[i] < 0.45) continue;
+    segs.push({ start: pts[i], end: pts[i+1], thumb:null, ref:null, take:null, score:null, kept:false });
+  }
+  if (!segs.length) segs.push({ start:0, end:S.dur, thumb:null, ref:null, take:null, score:null, kept:false });
+  S.segs = segs; S.cur = 0;
+}
+
+/* ---- beat: energy flux -> autocorrelation tempo -> phase ---- */
+async function findBeat(file){
+  let audio;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audio = await ctx.decodeAudioData(await file.arrayBuffer());
+    ctx.close();
+  } catch { return null; }
+
+  const ch = audio.getChannelData(0), sr = audio.sampleRate;
+  const hop = 512, win = 1024;
+  const n = Math.floor((ch.length - win) / hop);
+  if (n < 40) return null;
+
+  const env = new Float32Array(n);
+  for (let i = 0; i < n; i++){
+    let s = 0;
+    for (let j = 0; j < win; j += 2){ const v = ch[i*hop + j]; s += v*v; }
+    env[i] = Math.sqrt(s / (win/2));
+  }
+  const flux = new Float32Array(n);
+  for (let i = 1; i < n; i++) flux[i] = Math.max(0, env[i] - env[i-1]);
+
+  let mean = 0; for (const v of flux) mean += v; mean /= n;
+  if (mean < 1e-5) return null;
+  for (let i = 0; i < n; i++) flux[i] = Math.max(0, flux[i] - mean);
+
+  const fps = sr / hop;
+  const lo = Math.round(fps * 60/175), hi = Math.round(fps * 60/70);
+  let best = 0, bestLag = 0;
+  for (let lag = lo; lag <= hi; lag++){
+    let s = 0;
+    for (let i = lag; i < n; i++) s += flux[i] * flux[i-lag];
+    s /= (n - lag);
+    if (s > best){ best = s; bestLag = lag; }
+  }
+  if (!bestLag) return null;
+  const period = bestLag / fps;
+
+  let bestPhase = 0, bestSum = -1;
+  for (let k = 0; k < 60; k++){
+    const ph = k * period / 60;
+    let sum = 0;
+    for (let t = ph; t < audio.duration; t += period){
+      const i = Math.round(t * fps);
+      if (i > 0 && i < n) sum += flux[i] + flux[i-1]*0.5 + (flux[i+1]||0)*0.5;
+    }
+    if (sum > bestSum){ bestSum = sum; bestPhase = ph; }
+  }
+  return { period, phase: bestPhase };
+}
+
+/* ---- cuts: colour histogram difference ---- */
+async function findCuts(p){
+  const v = $('#src'), c = $('#work');
+  c.width = 64; c.height = 36;
+  const x = c.getContext('2d', {willReadFrequently:true});
+  const step = 1/5, cuts = [];
+  let prevH = null;
+  for (let t = 0; t < S.dur; t += step){
+    await seek(v, t);
+    x.drawImage(v, 0, 0, 64, 36);
+    const d = x.getImageData(0,0,64,36).data;
+    const h = new Float32Array(48);
+    for (let i = 0; i < d.length; i += 4){
+      h[d[i] >> 4]++; h[16 + (d[i+1] >> 4)]++; h[32 + (d[i+2] >> 4)]++;
+    }
+    if (prevH){
+      let diff = 0;
+      for (let i = 0; i < 48; i++) diff += Math.abs(h[i] - prevH[i]);
+      diff /= (64*36*3);
+      if (diff > 0.30) cuts.push(t);
+    }
+    prevH = h;
+    prog(p, 0.1 + 0.45 * (t / S.dur));
+  }
+  return cuts;
+}
+
+async function makeThumbs(p){
+  const v = $('#src'), c = $('#work');
+  c.width = 108; c.height = 168;
+  const x = c.getContext('2d');
+  for (let i = 0; i < S.segs.length; i++){
+    const s = S.segs[i];
+    await seek(v, s.start + Math.min(0.15, (s.end - s.start)/3));
+    x.drawImage(v, 0, 0, 108, 168);
+    s.thumb = c.toDataURL('image/jpeg', 0.6);
+    prog(p, 0.6 + 0.4 * (i+1)/S.segs.length);
+  }
+}
+
+function drawStrip(sel, editable){
+  const el = $(sel); el.innerHTML = '';
+  S.segs.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.className = 'shot' + (i === S.cur ? ' now' : '') + (s.kept ? ' kept' : '');
+    b.innerHTML = `<span class="idx">${i+1}</span>
+      <img alt="Shot ${i+1}" src="${s.thumb || ''}">
+      <span class="len">${(s.end - s.start).toFixed(1)}</span>`;
+    b.onclick = () => { S.cur = i; drawStrip(sel, editable); if (!editable) loadShot(); };
+    el.appendChild(b);
+  });
+  const now = el.children[S.cur];
+  if (now) now.scrollIntoView({block:'nearest', inline:'center'});
+}
+
+$('#merge').onclick = () => {
+  if (S.cur >= S.segs.length - 1) return;
+  S.segs[S.cur].end = S.segs[S.cur+1].end;
+  S.segs.splice(S.cur+1, 1);
+  drawStrip('#strip1', true);
+};
+$('#halve').onclick = async () => {
+  const s = S.segs[S.cur];
+  if (s.end - s.start < 1) return;
+  const mid = (s.start + s.end) / 2;
+  const b = { start: mid, end: s.end, thumb:null, ref:null, take:null, score:null, kept:false };
+  s.end = mid;
+  S.segs.splice(S.cur+1, 0, b);
+  const v = $('#src'), c = $('#work');
+  c.width = 108; c.height = 168;
+  await seek(v, mid + 0.1);
+  c.getContext('2d').drawImage(v, 0, 0, 108, 168);
+  b.thumb = c.toDataURL('image/jpeg', 0.6);
+  drawStrip('#strip1', true);
+};
+
+$('#toshoot').onclick = async () => {
+  show('s-shoot');
+  await startCamera();
+  loadPose();
+  loadShot();
+};
+
+/* =========================================================
+   3. shoot
+========================================================= */
+const ref = $('#ref'), cam = $('#cam');
+
+async function startCamera(){
+  if (S.stream) return;
+  try {
+    S.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'user', width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    cam.srcObject = S.stream;
+    await cam.play().catch(()=>{});
+  } catch {
+    $('#shotnote').textContent = 'No camera. Allow camera access and reload.';
+  }
+}
+
+function loadShot(){
+  const s = S.segs[S.cur];
+  ref.src = S.url;
+  ref.muted = false;
+  ref.currentTime = s.start;
+  ref.style.opacity = S.ghost;
+  ref.classList.toggle('mir', S.mirror);
+  const counts = S.beat ? Math.round((s.end - s.start) / S.beat.period) : 0;
+  $('#shotnote').textContent =
+    `Shot ${S.cur+1} of ${S.segs.length} · ${fmt(s.end - s.start)}` +
+    (counts ? ` · ${counts} counts` : '');
+  drawStrip('#strip2', false);
+  loopRef();
+}
+
+let loopRaf = 0;
+function loopRef(){
+  cancelAnimationFrame(loopRaf);
+  const s = S.segs[S.cur];
+  ref.play().catch(()=>{});
+  const tick = () => {
+    if (ref.currentTime >= s.end - 0.03 || ref.currentTime < s.start - 0.05) ref.currentTime = s.start;
+    loopRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+$('#ghost').oninput = e => {
+  S.ghost = e.target.value / 100;
+  ref.style.opacity = S.ghost;
+  $('#ghostval').textContent = e.target.value + '%';
+};
+$('#mirror').onclick = e => {
+  S.mirror = !S.mirror;
+  ref.classList.toggle('mir', S.mirror);
+  e.target.textContent = 'Mirror: ' + (S.mirror ? 'on' : 'off');
+};
+$('#preview').onclick = () => {
+  const g = S.ghost;
+  ref.style.opacity = 1;
+  setTimeout(() => { ref.style.opacity = g; }, (S.segs[S.cur].end - S.segs[S.cur].start) * 1000 + 200);
+};
+$('#prev').onclick = () => { if (S.cur > 0){ S.cur--; loadShot(); } };
+$('#skip').onclick = () => { if (S.cur < S.segs.length - 1){ S.cur++; loadShot(); } else show('s-cut'); };
+$('#tocut').onclick = () => { ref.pause(); cancelAnimationFrame(loopRaf); showCut(); };
+
+/* ---- the take ---- */
+let recorder, chunks;
+$('#shoot').onclick = async () => {
+  const s = S.segs[S.cur];
+  if (!S.stream) return startCamera();
+  $('#shoot').disabled = true;
+
+  if (!s.ref && S.pose) { $('#shotnote').textContent = 'Reading the original…'; await readRefPose(s); loadShot(); }
+
+  // count in
+  const ci = $('#countin'), n = ci.firstElementChild;
+  ci.classList.remove('hidden');
+  for (const k of ['3','2','1']){ n.textContent = k; await wait(700); }
+  ci.classList.add('hidden');
+
+  ref.currentTime = s.start;
+  await ref.play().catch(()=>{});
+
+  chunks = [];
+  recorder = new MediaRecorder(S.stream, { mimeType: pickMime(), videoBitsPerSecond: 4_000_000 });
+  recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  recorder.start();
+
+  $('#reclamp').classList.remove('hidden');
+  if (S.pose && s.ref) $('#meter').classList.remove('hidden');
+  const t0 = performance.now();
+  const beats = S.beat ? Math.max(1, Math.round((s.end - s.start)/S.beat.period)) : 0;
+  if (beats){ $('#beatbar').innerHTML = Array.from({length:beats}, () => '<i></i>').join(''); $('#beatbar').classList.remove('hidden'); }
+
+  let scores = [], last = 0;
+  const dur = (s.end - s.start) * 1000;
+  await new Promise(res => {
+    const tick = async () => {
+      const el = performance.now() - t0;
+      $('#rectime').textContent = (el/1000).toFixed(1);
+      if (beats){
+        const b = Math.floor(el/dur * beats);
+        [...$('#beatbar').children].forEach((i,k) => i.classList.toggle('on', k <= b));
+      }
+      if (ref.currentTime >= s.end - 0.02) ref.currentTime = s.end - 0.03;
+      if (S.pose && s.ref && el - last > 120){
+        last = el;
+        const sc = livePose(s, el/1000);
+        if (sc != null){ scores.push(sc); $('#meter').firstElementChild.textContent = Math.round(sc); }
+      }
+      if (el >= dur){ res(); return; }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+
+  recorder.stop();
+  await once(recorder, 'stop');
+  ref.pause();
+  $('#reclamp').classList.add('hidden');
+  $('#beatbar').classList.add('hidden');
+  $('#meter').classList.add('hidden');
+  $('#shoot').disabled = false;
+
+  const blob = new Blob(chunks, { type: recorder.mimeType });
+  if (s.take?.url) URL.revokeObjectURL(s.take.url);
+  s.take = { blob, url: URL.createObjectURL(blob) };
+  s.score = scores.length ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length) : null;
+  review();
+};
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function pickMime(){
+  return ['video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm']
+    .find(m => MediaRecorder.isTypeSupported(m)) || '';
+}
+
+/* =========================================================
+   4. review
+========================================================= */
+function review(){
+  const s = S.segs[S.cur];
+  $('#rv-take').src = s.take.url;
+  const rv = $('#rv-ref');
+  rv.src = S.url;
+  rv.onloadedmetadata = () => { rv.currentTime = s.start; rv.play().catch(()=>{}); };
+  const loopR = () => {
+    if (rv.currentTime >= s.end - 0.03 || rv.currentTime < s.start - 0.05) rv.currentTime = s.start;
+    if ($('#s-review').classList.contains('on')) requestAnimationFrame(loopR);
+  };
+  requestAnimationFrame(loopR);
+
+  const box = $('#scoreval'), txt = $('#scoretext');
+  if (s.score == null){
+    box.textContent = '–';
+    txt.textContent = 'No pose scoring on this one. Trust your eyes.';
+  } else {
+    box.textContent = s.score;
+    box.style.color = s.score >= 75 ? 'var(--good)' : s.score >= 55 ? 'var(--marker)' : 'var(--strike)';
+    txt.textContent = s.score >= 75 ? 'Arms and legs are tracking the original.'
+                   : s.score >= 55 ? 'Close. Watch the arms.'
+                   : 'Timing or limbs are off. Worth another go.';
+  }
+  show('s-review');
+}
+
+$('#again').onclick = () => { show('s-shoot'); loadShot(); };
+$('#keep').onclick = () => {
+  S.segs[S.cur].kept = true;
+  if (S.cur < S.segs.length - 1){ S.cur++; show('s-shoot'); loadShot(); }
+  else showCut();
+};
+
+/* =========================================================
+   pose (optional)
+========================================================= */
+async function loadPose(){
+  if (S.pose) return;
+  try {
+    const m = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14');
+    const files = await m.FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    S.pose = await m.PoseLandmarker.createFromOptions(files, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO', numPoses: 1
+    });
+  } catch { S.pose = null; }
+}
+
+const JOINTS = [[11,13,15],[12,14,16],[13,11,23],[14,12,24],[11,23,25],[12,24,26],[23,25,27],[24,26,28]];
+function angles(lm){
+  const a = [];
+  for (const [p,q,r] of JOINTS){
+    const A = lm[p], B = lm[q], C = lm[r];
+    if (!A || !B || !C){ a.push(null); continue; }
+    const v1 = [A.x-B.x, A.y-B.y], v2 = [C.x-B.x, C.y-B.y];
+    const d = v1[0]*v2[0] + v1[1]*v2[1];
+    const m = Math.hypot(...v1) * Math.hypot(...v2);
+    a.push(m ? Math.acos(Math.max(-1, Math.min(1, d/m))) * 180/Math.PI : null);
+  }
+  return a;
+}
+const nextTs = () => (S.ts += 40);
+
+async function readRefPose(s){
+  const v = $('#src');
+  const out = [];
+  const step = 1/8;
+  for (let t = s.start; t < s.end; t += step){
+    await seek(v, t);
+    try {
+      const r = S.pose.detectForVideo(v, nextTs());
+      if (r.landmarks?.[0]) out.push({ t: t - s.start, ang: angles(r.landmarks[0]) });
+    } catch {}
+  }
+  s.ref = out.length ? out : null;
+}
+
+function livePose(s, tSec){
+  let r;
+  try { r = S.pose.detectForVideo(cam, nextTs()); } catch { return null; }
+  if (!r.landmarks?.[0]) return null;
+  let live = angles(r.landmarks[0]);
+  if (S.mirror) live = [live[1],live[0],live[3],live[2],live[5],live[4],live[7],live[6]];
+  let near = s.ref[0], gap = 9e9;
+  for (const f of s.ref){ const g = Math.abs(f.t - tSec); if (g < gap){ gap = g; near = f; } }
+  let sum = 0, n = 0;
+  for (let i = 0; i < 8; i++){
+    if (live[i] == null || near.ang[i] == null) continue;
+    sum += Math.abs(live[i] - near.ang[i]); n++;
+  }
+  if (!n) return null;
+  return Math.max(0, Math.min(100, 100 - (sum/n) * 1.6));
+}
+
+/* =========================================================
+   5. cut
+========================================================= */
+function showCut(){
+  const kept = S.segs.filter(s => s.kept && s.take);
+  $('#cutstate').textContent = kept.length
+    ? `${kept.length} of ${S.segs.length} shots in the can.` + (kept.length < S.segs.length ? ' Missing shots get the original.' : '')
+    : 'No takes kept yet. Film at least one shot.';
+  $('#build').disabled = !kept.length;
+  show('s-cut');
+}
+$('#backtoshoot').onclick = () => { show('s-shoot'); loadShot(); };
+
+$('#build').onclick = async () => {
+  $('#build').disabled = true;
+  const p = $('#cutprog');
+  const W = 720, H = 1280;
+  const c = $('#stitch'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+
+  // one video element per shot, preloaded
+  const players = [];
+  for (const s of S.segs){
+    const v = document.createElement('video');
+    v.playsInline = true; v.muted = true; v.preload = 'auto';
+    v.src = s.take?.url || S.url;
+    v.dataset.own = s.take ? '1' : '0';
+    await once(v, 'loadedmetadata');
+    players.push(v);
+  }
+
+  // audio from the original
+  const actx = new (window.AudioContext || window.webkitAudioContext)();
+  const au = document.createElement('audio');
+  au.src = S.url;
+  await once(au, 'loadedmetadata');
+  const dest = actx.createMediaStreamDestination();
+  actx.createMediaElementSource(au).connect(dest);
+
+  const stream = c.captureStream(30);
+  dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  const out = [];
+  const rec = new MediaRecorder(stream, { mimeType: pickMime(), videoBitsPerSecond: 6_000_000 });
+  rec.ondataavailable = e => e.data.size && out.push(e.data);
+
+  const t0 = S.segs[0].start, tEnd = S.segs[S.segs.length-1].end;
+  au.currentTime = t0;
+  let idx = -1;
+
+  rec.start();
+  await au.play();
+
+  await new Promise(res => {
+    const draw = () => {
+      const t = au.currentTime;
+      if (t >= tEnd - 0.02){ res(); return; }
+      let i = S.segs.findIndex(s => t >= s.start && t < s.end);
+      if (i < 0) i = S.segs.length - 1;
+      const s = S.segs[i], v = players[i];
+      if (i !== idx){
+        idx = i;
+        v.currentTime = v.dataset.own === '1' ? 0 : s.start;
+        v.play().catch(()=>{});
+      }
+      // cover-fit
+      const ar = (v.videoWidth || 9) / (v.videoHeight || 16);
+      let dw = W, dh = W / ar;
+      if (dh < H){ dh = H; dw = H * ar; }
+      x.fillStyle = '#000'; x.fillRect(0,0,W,H);
+      x.save();
+      if (v.dataset.own === '1'){ x.translate(W,0); x.scale(-1,1); } // undo selfie mirror
+      x.drawImage(v, (W-dw)/2, (H-dh)/2, dw, dh);
+      x.restore();
+      prog(p, (t - t0) / (tEnd - t0));
+      requestAnimationFrame(draw);
+    };
+    draw();
+  });
+
+  rec.stop();
+  await once(rec, 'stop');
+  au.pause(); actx.close();
+  players.forEach(v => v.pause());
+  p.classList.add('hidden');
+
+  const blob = new Blob(out, { type: rec.mimeType });
+  const url = URL.createObjectURL(blob);
+  const o = $('#out'); o.src = url; o.classList.remove('hidden');
+  const a = $('#dl');
+  a.href = url;
+  a.download = 'retake' + (rec.mimeType.includes('mp4') ? '.mp4' : '.webm');
+  a.classList.remove('hidden');
+  $('#cutstate').textContent = 'Cut is done. Play it back, then save it.';
+  $('#build').disabled = false;
+};
+</script>
+</body>
+</html>
