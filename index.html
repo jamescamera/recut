@@ -193,6 +193,7 @@ a{color:var(--marker)}
   </div>
 
   <div class="panel stack">
+    <p class="hint hidden" id="camwarn" style="color:var(--marker)"></p>
     <div id="shotnote" style="font-size:15px"></div>
     <div>
       <label class="field" for="ghost">Ghost <span id="ghostval">35%</span></label>
@@ -555,7 +556,11 @@ async function startCamera(){
     cam.srcObject = S.stream;
     await cam.play().catch(()=>{});
   } catch {
-    $('#shotnote').textContent = 'No camera. Allow camera access and reload.';
+    const w = $('#camwarn');
+    w.classList.remove('hidden');
+    w.textContent = location.protocol === 'file:' || !navigator.mediaDevices
+      ? 'No camera here. Browsers only hand over the camera on https or localhost — open this page from GitHub Pages or a local server.'
+      : 'No camera. Allow camera access for this page, then reload.';
   }
 }
 
